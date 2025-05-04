@@ -1,13 +1,15 @@
 #!/bin/bash
 
 # 1. Gerekli paketleri yükle
-sudo apt update && sudo apt install unzip curl -y
+sudo apt update && sudo apt install unzip curl tmux -y
 
 # 2. Diode kurulumu
 curl -Ssf https://diode.io/install.sh | bash
 
-# 3. PATH ayarı
-echo 'export PATH=/root/opt/diode:$PATH' >> /root/.bashrc
+# 3. PATH ayarı (.bashrc'ye ekle ve anlık export yap)
+if ! grep -q '/root/opt/diode' /root/.bashrc; then
+    echo 'export PATH=/root/opt/diode:$PATH' >> /root/.bashrc
+fi
 export PATH=/root/opt/diode:$PATH
 
 # 4. Sunucu IP'sini alma
@@ -29,9 +31,22 @@ EOF
 # 6. Çalıştırılabilir yap
 chmod +x /root/diode-autopublish.sh
 
-echo "Kurulum tamamlandı. Tmux içinde aşağıdaki komutu kullanarak başlatabilirsiniz:"
+# 7. Kurulum tamamlandı mesajı ve tmux komutlarını göster
 echo ""
-echo "tmux new -s diode"
-echo "/root/diode-autopublish.sh"
+echo "✅ Kurulum tamamlandı!"
 echo ""
-echo "Çıkmak için CTRL+B tuşuna basıp ardından D tuşuna basın (detach için)."
+echo "📌 Tmux ile başlatmak için aşağıdaki adımları izleyin:"
+echo ""
+echo "1. Tmux oturumu başlat:"
+echo "   tmux new -s diode"
+echo ""
+echo "2. Scripti başlat:"
+echo "   /root/diode-autopublish.sh"
+echo ""
+echo "3. Oturumdan çıkmak (çalışmaya devam ederken):"
+echo "   CTRL + B tuşlarına basın, ardından D tuşuna basın (detach)"
+echo ""
+echo "4. Tekrar girmek için:"
+echo "   tmux attach -t diode"
+echo ""
+echo "Kurulum tamamen bitti ve tmux ile çalıştırmaya hazır."
