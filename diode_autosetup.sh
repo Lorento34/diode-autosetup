@@ -55,7 +55,10 @@ sudo systemctl start diode-autopublish.service
 echo ""
 echo "✅ Kurulum ve service konfigürasyonu tamamlandı! Kullanabileceğiniz komutlar aşağıdadır."
 echo ""
-echo "🔍 Gerçek zamanlı servis loglarını görmek için: sudo journalctl -fu diode-autopublish.service"
+echo -e "\e[1;34mGerçek zamanlı servis loglarını görmek için:\e[0m sudo journalctl -fu diode-autopublish.service"
+echo ""
 echo "🖥️ Servis durumunu kontrol etmek için: sudo systemctl status diode-autopublish.service"
+echo ""
 echo "🛠️ Restart atmak için: sudo systemctl restart diode-autopublish.service"
+echo ""echo ""
 
