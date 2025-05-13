@@ -1,52 +1,57 @@
 #!/bin/bash
+set -e
 
 # 1. Gerekli paketleri yükle
-sudo apt update && sudo apt install unzip curl tmux -y
+sudo apt update && sudo apt install -y unzip curl
 
-# 2. Diode kurulumu
+# 2. Diode CLI kurulumu
 curl -Ssf https://diode.io/install.sh | bash
 
-# 3. PATH ayarı (.bashrc'ye ekle ve anlık export yap)
+# 3. PATH ayarını hem geçerli oturuma hem de .bashrc'ye ekle
 if ! grep -q '/root/opt/diode' /root/.bashrc; then
     echo 'export PATH=/root/opt/diode:$PATH' >> /root/.bashrc
 fi
 export PATH=/root/opt/diode:$PATH
 
-# 4. Sunucu IP'sini alma
+# 4. Sunucu IP'sini al
 SERVER_IP=$(hostname -I | awk '{print $1}')
 
-# 5. diode-autopublish.sh dosyasını oluştur
-cat <<EOF > /root/diode-autopublish.sh
+# 5. Autopublish script'ini oluştur
+cat <<EOF | sudo tee /root/diode-autopublish.sh > /dev/null
 #!/bin/bash
 export PATH=/root/opt/diode:\$PATH
 
 while true; do
     echo "[\$(date)] Diode publish başlatılıyor..."
-    diode -diodeaddrs=$SERVER_IP:41046 -debug publish -public 8888:80
+    diode -diodeaddrs=${SERVER_IP}:41046 -debug publish -public 8888:80
     echo "[\$(date)] 5 dakika bekleniyor..."
     sleep 300
 done
 EOF
+sudo chmod +x /root/diode-autopublish.sh
 
-# 6. Çalıştırılabilir yap
-chmod +x /root/diode-autopublish.sh
+# 6. systemd servis birimini oluştur
+cat <<EOF | sudo tee /etc/systemd/system/diode-autopublish.service > /dev/null
+[Unit]
+Description=Diode Auto-Publish Service
+After=network.target
 
-# 7. Kurulum tamamlandı mesajı ve tmux komutlarını göster
+[Service]
+Type=simple
+Environment="PATH=/root/opt/diode:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/root/diode-autopublish.sh
+Restart=on-failure
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 7. systemd'i yeniden yükle, servisi aktif et ve başlat
+sudo systemctl daemon-reload
+sudo systemctl enable diode-autopublish.service
+sudo systemctl start diode-autopublish.service
+
 echo ""
-echo "✅ Kurulum tamamlandı!"
-echo ""
-echo "📌 Tmux ile başlatmak için aşağıdaki adımları izleyin:"
-echo ""
-echo "1. Tmux oturumu başlat:"
-echo "   tmux new -s diode"
-echo ""
-echo "2. Scripti başlat:"
-echo "   /root/diode-autopublish.sh"
-echo ""
-echo "3. Oturumdan çıkmak (çalışmaya devam ederken):"
-echo "   CTRL + B tuşlarına basın, ardından D tuşuna basın (detach)"
-echo ""
-echo "4. Tekrar girmek için:"
-echo "   tmux attach -t diode"
-echo ""
-echo "Kurulum tamamen bitti ve tmux ile çalıştırmaya hazır."
+echo "✅ Kurulum ve service konfigürasyonu tamamlandı!"
+echo "   Servis loglarını görmek için: sudo journalctl -fu diode-autopublish.service"
