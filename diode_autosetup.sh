@@ -16,8 +16,10 @@ export PATH=/root/opt/diode:$PATH
 # 4. Sunucu IP'sini al
 SERVER_IP=$(hostname -I | awk '{print $1}')
 
-# 5. Autopublish script'ini oluştur
-cat <<EOF | sudo tee /root/diode-autopublish.sh > /dev/null
+# 5. /opt/diode-publisher dizinini oluştur ve publish script'ini yerleştir
+sudo mkdir -p /opt/diode-publisher
+
+cat <<EOF | sudo tee /opt/diode-publisher/diode-autopublish.sh > /dev/null
 #!/bin/bash
 export PATH=/root/opt/diode:\$PATH
 
@@ -28,7 +30,8 @@ while true; do
     sleep 300
 done
 EOF
-sudo chmod +x /root/diode-autopublish.sh
+
+sudo chmod +x /opt/diode-publisher/diode-autopublish.sh
 
 # 6. systemd servis birimini oluştur
 cat <<EOF | sudo tee /etc/systemd/system/diode-autopublish.service > /dev/null
@@ -39,7 +42,7 @@ After=network.target
 [Service]
 Type=simple
 Environment="PATH=/root/opt/diode:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=/root/diode-autopublish.sh
+ExecStart=/opt/diode-publisher/diode-autopublish.sh
 Restart=on-failure
 RestartSec=300
 
@@ -51,6 +54,7 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable diode-autopublish.service
 sudo systemctl start diode-autopublish.service
+
 echo ""
 echo ""
 printf "\e[1m✅ Kurulum ve service konfigürasyonu tamamlandı! Kullanabileceğiniz komutlar aşağıdadır.\e[0m\n"
