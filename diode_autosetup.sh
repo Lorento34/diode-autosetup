@@ -36,13 +36,13 @@ sudo rm -rf /opt/diode-publisher
 #############################
 cat <<'EOF' | sudo tee /etc/systemd/system/diode-publish.service > /dev/null
 [Unit]
-Description=Diode HTTP Gateway Publisher
+Description=Diode HTTP Gateway Publisher (custom relay)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/root/opt/diode/diode -debug publish -public 8888:80
+ExecStart=/root/opt/diode/diode -debug -diodeaddrs=eu1.prenet.diode.io:41046 publish -public 8888:80
 Restart=on-failure
 RestartSec=10
 Environment=PATH=/root/opt/diode:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
