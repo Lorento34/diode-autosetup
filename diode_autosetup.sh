@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # Renkli çıktı fonksiyonları
-def print_success() { printf "\e[1;32m✓ %s\e[0m\n" "$@"; }
-def print_info()    { printf "\e[1;36mℹ %s\e[0m\n" "$@"; }
-def print_warning() { printf "\e[1;33m⚠ %s\e[0m\n" "$@"; }
-def print_error()   { printf "\e[1;31m✗ %s\e[0m\n" "$@" >&2; }
+print_success() { printf "\e[1;32m✓ %s\e[0m\n" "$@"; }
+print_info()    { printf "\e[1;36mℹ %s\e[0m\n" "$@"; }
+print_warning() { printf "\e[1;33m⚠ %s\e[0m\n" "$@"; }
+print_error()   { printf "\e[1;31m✗ %s\e[0m\n" "$@" >&2; }
 
 # Kök kontrolü
 if [ "$(id -u)" -ne 0 ]; then
@@ -98,13 +98,13 @@ INSTALL_DIR="/opt/diode"
 mkdir -p "$INSTALL_DIR"
 
 # Sürüm kontrolü
-LATEST_VERSION=$(curl -s https://api.github.com/repos/diodechain/diode_go_client/releases/latest | jq -r '.tag_name // empty')
+LATEST_VERSION=$(curl -s https://api.github.com/repos/diodechain/diode_client/releases/latest | jq -r '.tag_name // empty')
 # İndirme URL'si
 if [[ -n "$LATEST_VERSION" ]]; then
-    DOWNLOAD_URL="https://github.com/diodechain/diode_go_client/releases/download/${LATEST_VERSION}/diode_linux_amd64.zip"
+    DOWNLOAD_URL="https://github.com/diodechain/diode_client/releases/download/${LATEST_VERSION}/diode_linux_amd64.zip"
 else
     print_warning "Son sürüm bilgisi alınamadı, fallback URL kullanılıyor"
-    DOWNLOAD_URL="https://github.com/diodechain/diode_go_client/releases/latest/download/diode_linux_amd64.zip"
+    DOWNLOAD_URL="https://github.com/diodechain/diode_client/releases/latest/download/diode_linux_amd64.zip"
 fi
 print_info "İndiriliyor: $DOWNLOAD_URL"
 
