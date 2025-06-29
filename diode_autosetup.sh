@@ -15,7 +15,7 @@ fi
 
 # Log fonksiyonu
 log() {
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" | sudo tee -a /var/log/diode-install.log >/dev/null
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" | tee -a /var/log/diode-install.log >/dev/null
 }
 
 # Başlık
@@ -26,17 +26,15 @@ log "===== KURULUM BAŞLANGICI ====="
 # 1) Gerekli Paketler
 #############################
 print_info "Güncellemeler kontrol ediliyor..."
-sudo apt-get update -q
+apt-get update -q
 
 print_info "Gerekli paketler kuruluyor..."
-sudo apt-get install -yq \
+apt-get install -yq \
     unzip \
     curl \
     nginx \
     jq \
-    net-tools \
-    gnupg \
-    software-properties-common
+    net-tools
 
 print_success "Paket kurulumu tamamlandı"
 
@@ -46,7 +44,7 @@ print_success "Paket kurulumu tamamlandı"
 print_info "Nginx yapılandırması güncelleniyor..."
 
 # Test sayfası oluştur
-sudo bash -c 'cat > /var/www/html/index.html <<EOF
+cat > /var/www/html/index.html <<'EOF'
 <!DOCTYPE html>
 <html>
 <head>
@@ -93,20 +91,20 @@ sudo bash -c 'cat > /var/www/html/index.html <<EOF
     </script>
 </body>
 </html>
-EOF'
+EOF
 
 # Nginx port değişikliği
 NGINX_CONF="/etc/nginx/sites-available/default"
 if grep -q "listen 80" "$NGINX_CONF"; then
-    sudo sed -i 's/listen 80 default_server;/listen 8888 default_server;/g' "$NGINX_CONF"
-    sudo sed -i 's/listen \[::\]:80 default_server;/listen [::]:8888 default_server;/g' "$NGINX_CONF"
+    sed -i 's/listen 80 default_server;/listen 8888 default_server;/g' "$NGINX_CONF"
+    sed -i 's/listen \[::\]:80 default_server;/listen [::]:8888 default_server;/g' "$NGINX_CONF"
     print_success "Nginx portu 8888 olarak güncellendi"
 else
     print_warning "Nginx zaten farklı bir portta çalışıyor"
 fi
 
 # Diode bilgi endpoint'i
-sudo bash -c 'cat > /var/www/html/diode-info <<EOF
+cat > /var/www/html/diode-info <<'EOF'
 #!/bin/bash
 echo "Content-type: application/json"
 echo ""
@@ -114,61 +112,61 @@ echo "{"
 echo "\"diode_address\":\"$(curl -s http://localhost:8080/address 2>/dev/null || echo "Hizmet başlatılıyor...")\","
 echo "\"local_ip\":\"$(hostname -I | awk "{print \$1}")\""
 echo "}"
-EOF'
+EOF
 
-sudo chmod +x /var/www/html/diode-info
-sudo systemctl restart nginx
+chmod +x /var/www/html/diode-info
+
+# Nginx test et ve yeniden başlat
+nginx -t && systemctl restart nginx
+print_success "Nginx test edildi ve yeniden başlatıldı"
 
 #############################
 # 3) Diode CLI Kurulumu (DÜZELTİLMİŞ)
 #############################
 print_info "Diode CLI kuruluyor..."
 INSTALL_DIR="/opt/diode"
-sudo mkdir -p "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
 
 # Sürüm kontrolü ile kurulum
 LATEST_VERSION=$(curl -s https://api.github.com/repos/diodechain/diode_go_client/releases/latest | jq -r '.tag_name')
 if [[ -z "$LATEST_VERSION" ]]; then
-    print_error "Son sürüm bilgisi alınamadı, manuel sürüm kullanılıyor: v1.5.0"
+    print_warning "Son sürüm bilgisi alınamadı, manuel sürüm kullanılıyor: v1.5.0"
     LATEST_VERSION="v1.5.0"
 fi
 
-CURRENT_VERSION=$([ -f "$INSTALL_DIR/diode" ] && "$INSTALL_DIR/diode" version | awk '{print $3}' || echo "")
+# Diode Go Client için doğru URL formatı
+DOWNLOAD_URL="https://github.com/diodechain/diode_go_client/releases/download/${LATEST_VERSION}/diode_linux_amd64.zip"
+print_info "Diode ${LATEST_VERSION} indiriliyor: ${DOWNLOAD_URL}"
 
-# Alternatif indirme yöntemi eklendi
-if [[ "$CURRENT_VERSION" != "$LATEST_VERSION" ]]; then
-    DOWNLOAD_URL="https://github.com/diodechain/diode_go_client/releases/download/${LATEST_VERSION}/diode_${LATEST_VERSION#v}_linux_amd64.zip"
-    print_info "Diode ${LATEST_VERSION} indiriliyor: ${DOWNLOAD_URL}"
-    
-    # İndirme işlemi (alternatif yöntemler)
-    if ! curl -fL "$DOWNLOAD_URL" -o diode.zip; then
-        print_warning "Birinci indirme yöntemi başarısız, alternatif URL deneniyor..."
-        if ! curl -fL "https://github.com/diodechain/diode_go_client/releases/latest/download/diode_linux_amd64.zip" -o diode.zip; then
-            print_error "Diode indirme başarısız"
-            exit 1
-        fi
-    fi
-
-    # ZIP dosyasını açma
-    if ! unzip -o diode.zip -d "$INSTALL_DIR"; then
-        print_error "ZIP dosyası açılamadı, manuel kurulum deneniyor..."
-        sudo rm -f diode.zip
-        
-        # Manuel indirme ve kurulum
-        sudo curl -fL "https://github.com/diodechain/diode_go_client/releases/latest/download/diode_linux_amd64" -o "$INSTALL_DIR/diode"
-        sudo chmod +x "$INSTALL_DIR/diode"
-    else
-        sudo rm diode.zip
-    fi
-    
-    print_success "Diode CLI güncellendi: ${LATEST_VERSION}"
-else
-    print_info "En güncel sürüm zaten kurulu: ${CURRENT_VERSION}"
+# İndirme işlemi
+curl -fL "$DOWNLOAD_URL" -o diode.zip
+if [ $? -ne 0 ]; then
+    print_error "Diode indirme başarısız"
+    print_info "Alternatif indirme yöntemi deneniyor..."
+    curl -fL "https://github.com/diodechain/diode_go_client/releases/latest/download/diode_linux_amd64.zip" -o diode.zip || {
+        print_error "Alternatif indirme de başarısız oldu"
+        exit 1
+    }
 fi
+
+# ZIP dosyasını açma
+unzip -o diode.zip -d "$INSTALL_DIR" || {
+    print_error "ZIP dosyası açılamadı, manuel kurulum deneniyor..."
+    rm -f diode.zip
+    curl -fL "https://github.com/diodechain/diode_go_client/releases/latest/download/diode_linux_amd64" -o "$INSTALL_DIR/diode" || {
+        print_error "Manuel indirme de başarısız oldu"
+        exit 1
+    }
+    chmod +x "$INSTALL_DIR/diode"
+    print_success "Manuel kurulum başarılı"
+}
+
+rm -f diode.zip
+print_success "Diode CLI kuruldu: ${LATEST_VERSION}"
 
 # PATH güncellemesi
 if ! grep -q "$INSTALL_DIR" /etc/profile; then
-    echo "export PATH=${INSTALL_DIR}:\$PATH" | sudo tee /etc/profile.d/diode.sh >/dev/null
+    echo "export PATH=${INSTALL_DIR}:\$PATH" | tee /etc/profile.d/diode.sh >/dev/null
     source /etc/profile.d/diode.sh
 fi
 
@@ -178,12 +176,12 @@ fi
 print_info "Diode servisi yapılandırılıyor..."
 
 # Eski servisleri temizle
-sudo systemctl stop diode-publish.service 2>/dev/null || true
-sudo systemctl disable diode-publish.service 2>/dev/null || true
-sudo rm -f /etc/systemd/system/diode-publish.service
+systemctl stop diode-publish.service 2>/dev/null || true
+systemctl disable diode-publish.service 2>/dev/null || true
+rm -f /etc/systemd/system/diode-publish.service
 
 # Yeni servis tanımı
-sudo tee /etc/systemd/system/diode-publish.service >/dev/null <<EOF
+cat > /etc/systemd/system/diode-publish.service <<EOF
 [Unit]
 Description=Diode HTTP Gateway Publisher
 After=network.target nginx.service
@@ -221,8 +219,8 @@ WantedBy=multi-user.target
 EOF
 
 # Servisi başlat
-sudo systemctl daemon-reload
-sudo systemctl enable --now diode-publish.service
+systemctl daemon-reload
+systemctl enable --now diode-publish.service
 
 #############################
 # 5) Health Check
