@@ -120,7 +120,7 @@ sudo chmod +x /var/www/html/diode-info
 sudo systemctl restart nginx
 
 #############################
-# 3) Diode CLI Kurulumu
+# 3) Diode CLI Kurulumu (DÜZELTİLMİŞ)
 #############################
 print_info "Diode CLI kuruluyor..."
 INSTALL_DIR="/opt/diode"
@@ -128,12 +128,39 @@ sudo mkdir -p "$INSTALL_DIR"
 
 # Sürüm kontrolü ile kurulum
 LATEST_VERSION=$(curl -s https://api.github.com/repos/diodechain/diode_go_client/releases/latest | jq -r '.tag_name')
+if [[ -z "$LATEST_VERSION" ]]; then
+    print_error "Son sürüm bilgisi alınamadı, manuel sürüm kullanılıyor: v1.5.0"
+    LATEST_VERSION="v1.5.0"
+fi
+
 CURRENT_VERSION=$([ -f "$INSTALL_DIR/diode" ] && "$INSTALL_DIR/diode" version | awk '{print $3}' || echo "")
 
+# Alternatif indirme yöntemi eklendi
 if [[ "$CURRENT_VERSION" != "$LATEST_VERSION" ]]; then
-    curl -sL "https://github.com/diodechain/diode_go_client/releases/download/${LATEST_VERSION}/diode_${LATEST_VERSION#v}_linux_amd64.zip" -o diode.zip
-    sudo unzip -o diode.zip -d "$INSTALL_DIR" >/dev/null
-    sudo rm diode.zip
+    DOWNLOAD_URL="https://github.com/diodechain/diode_go_client/releases/download/${LATEST_VERSION}/diode_${LATEST_VERSION#v}_linux_amd64.zip"
+    print_info "Diode ${LATEST_VERSION} indiriliyor: ${DOWNLOAD_URL}"
+    
+    # İndirme işlemi (alternatif yöntemler)
+    if ! curl -fL "$DOWNLOAD_URL" -o diode.zip; then
+        print_warning "Birinci indirme yöntemi başarısız, alternatif URL deneniyor..."
+        if ! curl -fL "https://github.com/diodechain/diode_go_client/releases/latest/download/diode_linux_amd64.zip" -o diode.zip; then
+            print_error "Diode indirme başarısız"
+            exit 1
+        fi
+    fi
+
+    # ZIP dosyasını açma
+    if ! unzip -o diode.zip -d "$INSTALL_DIR"; then
+        print_error "ZIP dosyası açılamadı, manuel kurulum deneniyor..."
+        sudo rm -f diode.zip
+        
+        # Manuel indirme ve kurulum
+        sudo curl -fL "https://github.com/diodechain/diode_go_client/releases/latest/download/diode_linux_amd64" -o "$INSTALL_DIR/diode"
+        sudo chmod +x "$INSTALL_DIR/diode"
+    else
+        sudo rm diode.zip
+    fi
+    
     print_success "Diode CLI güncellendi: ${LATEST_VERSION}"
 else
     print_info "En güncel sürüm zaten kurulu: ${CURRENT_VERSION}"
@@ -204,7 +231,7 @@ print_info "Servis sağlık kontrolü yapılıyor..."
 sleep 5
 
 if systemctl is-active --quiet diode-publish.service; then
-    DIODE_ADDRESS=$(curl -s http://localhost:8080/address)
+    DIODE_ADDRESS=$(curl -s http://localhost:8080/address || echo "adres-alınamadı")
     print_success "Servis başarıyla başlatıldı"
     print_success "Yayın Adresi: https://${DIODE_ADDRESS}.diode.link"
 else
