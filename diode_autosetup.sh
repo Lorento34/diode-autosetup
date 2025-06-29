@@ -7,9 +7,10 @@ print_info()    { printf "\e[1;36mℹ %s\e[0m\n" "$@"; }
 print_warning() { printf "\e[1;33m⚠ %s\e[0m\n" "$@"; }
 print_error()   { printf "\e[1;31m✗ %s\e[0m\n" "$@" >&2; }
 
-# Kök kontrolü\if [[ $EUID -ne 0 ]]; then
-   print_error "Bu script root yetkileri ile çalıştırılmalıdır"
-   exit 1
+# Kök kontrolü
+if [ "$(id -u)" -ne 0 ]; then
+    print_error "Bu script root yetkileri ile çalıştırılmalıdır"
+    exit 1
 fi
 
 # Log fonksiyonu
@@ -94,8 +95,8 @@ EOF
 # Nginx port değişikliği
 NGINX_CONF="/etc/nginx/sites-available/default"
 if grep -q "listen 80" "$NGINX_CONF"; then
-    sed -i 's/listen 80 default_server;/listen 8888 default_server;/g' "$NGINX_CONF"
-    sed -i 's/listen \[::\]:80 default_server;/listen [::]:8888 default_server;/g' "$NGINX_CONF"
+    sed -i 's/listen 80 default_server;/listen 8888 default_server;/' "$NGINX_CONF"
+    sed -i 's/listen \[::\]:80 default_server;/listen [::]:8888 default_server;/' "$NGINX_CONF"
     print_success "Nginx portu 8888 olarak güncellendi"
 else
     print_warning "Nginx zaten farklı bir portta çalışıyor"
@@ -104,12 +105,12 @@ fi
 # Diode bilgi endpoint'i
 cat > /var/www/html/diode-info <<'EOF'
 #!/bin/bash
-echo "Content-type: application/json"
-echo ""
-echo "{"
-echo "\"diode_address\":\"$(curl -s http://localhost:8080/address 2>/dev/null || echo \"Hizmet başlatılıyor...\")\"," 
- echo "\"local_ip\":\"$(hostname -I | awk '{print \$1}')\""
-echo "}"
+ echo "Content-type: application/json"
+ echo ""
+ echo "{"
+ echo "\"diode_address\":\"$(curl -s http://localhost:8080/address 2>/dev/null || echo "Hizmet başlatılıyor...")\"," 
+ echo "\"local_ip\":\"$(hostname -I | awk '{print $1}')\""
+ echo "}"
 EOF
 chmod +x /var/www/html/diode-info
 
@@ -130,7 +131,8 @@ if [[ -z "$LATEST_VERSION" || "$LATEST_VERSION" == "null" ]]; then
     LATEST_VERSION="v1.5.0"
 fi
 
-# İndirme URL'si\DOWNLOAD_URL="https://github.com/diodechain/diode_go_client/releases/download/${LATEST_VERSION}/diode_linux_amd64.zip"
+# İndirme URL'si
+DOWNLOAD_URL="https://github.com/diodechain/diode_go_client/releases/download/${LATEST_VERSION}/diode_linux_amd64.zip"
 print_info "Diode ${LATEST_VERSION} indiriliyor: ${DOWNLOAD_URL}"
 
 # İndirme ve kurulum
@@ -147,8 +149,8 @@ chmod +x "${INSTALL_DIR}/diode"
 print_success "Diode CLI kuruldu: ${LATEST_VERSION}"
 
 # PATH güncellemesi
-if ! grep -q "$INSTALL_DIR" /etc/profile.d/diode.sh 2>/dev/null; then
-    echo "export PATH=${INSTALL_DIR}:\$PATH" | tee /etc/profile.d/diode.sh >/dev/null
+if [ ! -f /etc/profile.d/diode.sh ] || ! grep -q "$INSTALL_DIR" /etc/profile.d/diode.sh; then
+    echo "export PATH=${INSTALL_DIR}:\$PATH" > /etc/profile.d/diode.sh
 fi
 
 #############################
@@ -160,7 +162,7 @@ systemctl stop diode-publish.service 2>/dev/null || true
 systemctl disable diode-publish.service 2>/dev/null || true
 rm -f /etc/systemd/system/diode-publish.service
 
-cat > /etc/systemd/system/diode-publish.service <<EOF
+cat > /etc/systemd/system/diode-publish.service <<'EOF'
 [Unit]
 Description=Diode HTTP Gateway Publisher
 After=network.target nginx.service
@@ -227,14 +229,14 @@ $(printf "\e[1m🌐 Halka Açık URL:\e[0m")
    https://${DIODE_ADDRESS}.diode.link
 
 $(printf "\e[1m📊 Durum Sayfası:\e[0m")
-   http://$(hostname -I | awk '{print $1}') (Yerel ağ)
+   http://$(hostname -I | awk '{print \$1}') (Yerel ağ)
 
 $(printf "\e[1m📋 Yönetim Komutları:\e[0m")
    Servis Durumu:  \e[32msudo systemctl status diode-publish.service\e[0m
    Logları Görüntüle: \e[33msudo journalctl -fu diode-publish.service\e[0m
    Servisi Yeniden Başlat: \e[36msudo systemctl restart diode-publish.service\e[0m
 
-$(printf "\e[1m💡 Not:\e[0m") İlk bağlantı kurulumu 1-2 dakika sürebilir
+$(printf "\e[1;33m💡 Not:\e[0m") İlk bağlantı kurulumu 1-2 dakika sürebilir
 EOF
 
 log "===== KURULUM TAMAMLANDI ====="
