@@ -6,64 +6,78 @@ set -euo pipefail
 # health checks, parametric configuration, and security best practices
 # ----------------------------------------------------------------------------
 
-# Default configuration
+# If not root, re-exec with sudo
+if [ "$(id -u)" -ne 0 ]; then
+  echo "⚠️ Root yetkisi gerekiyor, sudo ile yeniden çalıştırılıyor..."
+  exec sudo bash "$0" "$@"
+fi
+
+# Renkli çıktı fonksiyonları
+print_success() { printf "\e[1;32m✓ %s\e[0m\n" "$@"; }
+print_info()    { printf "\e[1;36mℹ %s\e[0m\n" "$@"; }
+print_warning() { printf "\e[1;33m⚠ %s\e[0m\n" "$@"; }
+print_error()   { printf "\e[1;31m✗ %s\e[0m\n" "$@" >&2; }
+
+# Log fonksiyonu
+log() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" | tee -a /var/log/diode-install.log >/dev/null
+}
+
+print_info "Diode Network Gateway Kurulumu Başlatılıyor..."
+log "===== KURULUM BAŞLANGICI ====="
+
+# Config paths
 ENV_FILE="/etc/diode-publish/config.env"
 NGINX_CONF="/etc/nginx/sites-available/diode_publish.conf"
 SERVICE_FILE="/etc/systemd/system/diode-publish.service"
 CLI_DIR="/opt/diode"
 
 # Create config directory
-sudo mkdir -p "$(dirname "$ENV_FILE")"
+mkdir -p "$(dirname "$ENV_FILE")"
 
 # Generate environment file if missing
 if [[ ! -f "$ENV_FILE" ]]; then
-  sudo tee "$ENV_FILE" > /dev/null <<EOF
+  cat > "$ENV_FILE" <<EOF
 # Diode Publisher Configuration
-# Local port where Nginx listens
 LOCAL_PORT=8888
-# Upstream port Nginx proxies to (your internal service)
 UPSTREAM_PORT=80
-# Diode server addresses (comma-separated)
 DIODE_ADDRS="eu1.prenet.diode.io:41046"
-# Domain for TLS (optional)
 DOMAIN=""
-# System user for running Diode
 DIODE_USER="diode"
 EOF
-  echo "Created default config at $ENV_FILE"
+  print_info "Oluşturuldu: $ENV_FILE"
 fi
 
-# Load configuration
+# Load config
 source "$ENV_FILE"
 
 # Ensure Diode user exists
 if ! id -u "$DIODE_USER" &>/dev/null; then
-  sudo useradd --system --no-create-home --shell /usr/sbin/nologin "$DIODE_USER"
-  echo "Created system user: $DIODE_USER"
+  useradd --system --no-create-home --shell /usr/sbin/nologin "$DIODE_USER"
+  print_info "Kullanıcı oluşturuldu: $DIODE_USER"
 fi
 
-# Install prerequisites if missing
-PKGS=("unzip" "curl" "nginx" "certbot" "python3-certbot-nginx")
+# Install prerequisites
+PKGS=(unzip curl nginx certbot python3-certbot-nginx jq net-tools)
 for pkg in "${PKGS[@]}"; do
   if ! dpkg -s "$pkg" &>/dev/null; then
-    sudo apt-get update
-    sudo apt-get install -y "$pkg"
+    apt-get update -q
+    apt-get install -yq "$pkg"
   fi
 done
+print_success "Gerekli paketler kuruldu"
 
-# Configure Nginx site
-sudo tee "$NGINX_CONF" > /dev/null <<EOF
+# Configure Nginx
+cat > "$NGINX_CONF" <<EOF
 server {
   listen $LOCAL_PORT default_server;
   listen [::]:$LOCAL_PORT default_server;
 
-  # Health endpoint
   location /health {
     add_header Content-Type text/plain;
     return 200 'OK';
   }
 
-  # Proxy to internal service
   location / {
     proxy_pass http://127.0.0.1:$UPSTREAM_PORT;
     proxy_set_header Host \$host;
@@ -72,46 +86,36 @@ server {
   }
 }
 EOF
+ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/diode_publish.conf
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx
+print_success "Nginx $LOCAL_PORT portuna ayarlandı"
 
-# Enable site
-sudo ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/diode_publish.conf
-sudo rm -f /etc/nginx/sites-enabled/default
-
-# Reload Nginx
-sudo nginx -t && sudo systemctl reload nginx
-
-echo "🖥️  Nginx configured and reloaded listening on port $LOCAL_PORT"
-
-# Optional TLS via Certbot
-if [[ -n "$DOMAIN" ]]; then
-  echo "🔐 Obtaining TLS certificates for $DOMAIN"
-  sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m admin@$DOMAIN
-  sudo systemctl reload nginx
-  echo "✅ TLS configured for $DOMAIN"
+# TLS if DOMAIN set\if [[ -n "$DOMAIN" ]]; then
+  certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m admin@$DOMAIN
+  systemctl reload nginx
+  print_success "TLS sertifikası alındı: $DOMAIN"
 fi
 
-# Install Diode CLI manually to avoid permission issues
-sudo mkdir -p "$CLI_DIR"
-sudo chown "$DIODE_USER":"$DIODE_USER" "$CLI_DIR"
-
-# Determine latest release tag
-VERSION=$(curl -sSf https://api.github.com/repos/diodechain/diode_go_client/releases/latest \
-  | grep '"tag_name"' \
-  | sed -E 's/.*"v?([^"]+)".*/\1/')
-
-echo "⚙️  Installing Diode CLI version $VERSION..."
-TMP_ZIP=$(mktemp)
-curl -sSL "https://github.com/diodechain/diode_go_client/releases/download/v$VERSION/diode_linux_amd64.zip" -o "$TMP_ZIP"
-sudo unzip -o "$TMP_ZIP" -d "$CLI_DIR"
-sudo chmod +x "$CLI_DIR/diode"
-sudo chown "$DIODE_USER":"$DIODE_USER" "$CLI_DIR/diode"
-rm "$TMP_ZIP"
-echo "⚙️  Diode CLI installed at $CLI_DIR/diode"
+# Install Diode CLI
+mkdir -p "$CLI_DIR"
+chown "$DIODE_USER":"$DIODE_USER" "$CLI_DIR"
+print_info "Diode CLI kuruluyor..."
+VERSION=$(curl -sSf https://api.github.com/repos/diodechain/diode_go_client/releases/latest | jq -r '.tag_name' )
+URL="https://github.com/diodechain/diode_go_client/releases/download/v${VERSION}/diode_linux_amd64.zip"
+print_info "Sürüm $VERSION indiriliyor"
+tmp=$(mktemp)
+curl -fsSL "$URL" -o "$tmp"
+unzip -o "$tmp" -d "$CLI_DIR"
+chmod +x "$CLI_DIR/diode"
+chown "$DIODE_USER":"$DIODE_USER" "$CLI_DIR/diode"
+rm "$tmp"
+print_success "Diode CLI yüklendi: $CLI_DIR/diode"
 
 # Create systemd service
-sudo tee "$SERVICE_FILE" > /dev/null <<EOF
+cat > "$SERVICE_FILE" <<EOF
 [Unit]
-Description=Diode HTTP Gateway Publisher (custom relay)
+Description=Diode HTTP Gateway Publisher
 After=network-online.target
 Wants=network-online.target
 
@@ -119,7 +123,7 @@ Wants=network-online.target
 Type=simple
 User=$DIODE_USER
 EnvironmentFile=$ENV_FILE
-ExecStartPre=/usr/bin/curl --fail http://localhost:\$LOCAL_PORT/health
+ExecStartPre=-/usr/bin/rm -rf /home/$DIODE_USER/.diode/chain
 ExecStart=$CLI_DIR/diode -debug -diodeaddrs=\$DIODE_ADDRS publish -public \$LOCAL_PORT:\$UPSTREAM_PORT
 Restart=on-failure
 RestartSec=10
@@ -128,10 +132,10 @@ Environment=PATH=$CLI_DIR:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbi
 [Install]
 WantedBy=multi-user.target
 EOF
+systemctl daemon-reload
+enable_cmd="systemctl enable diode-publish.service"
+start_cmd="systemctl start diode-publish.service"
+eval \$enable_cmd && eval \$start_cmd
+print_success "Servis etkinleştirildi ve başlatıldı"
 
-# Enable and start service
-sudo systemctl daemon-reload
-sudo systemctl enable --now diode-publish.service
-
-echo "✅ Diode publish service enabled and started"
-echo "🔍 Check logs: sudo journalctl -fu diode-publish.service"
+print_info "Kurulum tamamlandı. Logları takip etmek için: journalctl -fu diode-publish.service"
