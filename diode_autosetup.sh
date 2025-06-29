@@ -10,6 +10,7 @@ set -euo pipefail
 ENV_FILE="/etc/diode-publish/config.env"
 NGINX_CONF="/etc/nginx/sites-available/diode_publish.conf"
 SERVICE_FILE="/etc/systemd/system/diode-publish.service"
+CLI_DIR="/opt/diode"
 
 # Create config directory
 sudo mkdir -p "$(dirname "$ENV_FILE")"
@@ -22,11 +23,11 @@ if [[ ! -f "$ENV_FILE" ]]; then
 LOCAL_PORT=8888
 # Upstream port Nginx proxies to (your internal service)
 UPSTREAM_PORT=80
-# Diode server addresses
+# Diode server addresses (comma-separated)
 DIODE_ADDRS="eu1.prenet.diode.io:41046"
 # Domain for TLS (optional)
 DOMAIN=""
-# Diode user
+# System user for running Diode
 DIODE_USER="diode"
 EOF
   echo "Created default config at $ENV_FILE"
@@ -74,7 +75,6 @@ EOF
 
 # Enable site
 sudo ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/diode_publish.conf
-# Disable default site if still enabled
 sudo rm -f /etc/nginx/sites-enabled/default
 
 # Reload Nginx
@@ -90,15 +90,23 @@ if [[ -n "$DOMAIN" ]]; then
   echo "✅ TLS configured for $DOMAIN"
 fi
 
-# Install Diode CLI for diode user
-CLI_DIR="/opt/diode"
-if [[ ! -x "$CLI_DIR/diode" ]]; then
-  sudo mkdir -p "$CLI_DIR"
-  sudo chown "$DIODE_USER":"$DIODE_USER" "$CLI_DIR"
-  sudo -u "$DIODE_USER" bash -c "curl -sSf https://diode.io/install.sh | DIODE_HOME=$CLI_DIR bash"
-  sudo chmod +x "$CLI_DIR/diode"
-  echo "⚙️  Diode CLI installed at $CLI_DIR"
-fi
+# Install Diode CLI manually to avoid permission issues
+sudo mkdir -p "$CLI_DIR"
+sudo chown "$DIODE_USER":"$DIODE_USER" "$CLI_DIR"
+
+# Determine latest release tag
+VERSION=$(curl -sSf https://api.github.com/repos/diodechain/diode_go_client/releases/latest \
+  | grep '"tag_name"' \
+  | sed -E 's/.*"v?([^"]+)".*/\1/')
+
+echo "⚙️  Installing Diode CLI version $VERSION..."
+TMP_ZIP=$(mktemp)
+curl -sSL "https://github.com/diodechain/diode_go_client/releases/download/v$VERSION/diode_linux_amd64.zip" -o "$TMP_ZIP"
+sudo unzip -o "$TMP_ZIP" -d "$CLI_DIR"
+sudo chmod +x "$CLI_DIR/diode"
+sudo chown "$DIODE_USER":"$DIODE_USER" "$CLI_DIR/diode"
+rm "$TMP_ZIP"
+echo "⚙️  Diode CLI installed at $CLI_DIR/diode"
 
 # Create systemd service
 sudo tee "$SERVICE_FILE" > /dev/null <<EOF
