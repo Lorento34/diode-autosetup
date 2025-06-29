@@ -3,12 +3,11 @@ set -euo pipefail
 
 # Renkli çıktı fonksiyonları
 print_success() { printf "\e[1;32m✓ %s\e[0m\n" "$@"; }
-print_info() { printf "\e[1;36mℹ %s\e[0m\n" "$@"; }
+print_info()    { printf "\e[1;36mℹ %s\e[0m\n" "$@"; }
 print_warning() { printf "\e[1;33m⚠ %s\e[0m\n" "$@"; }
-print_error() { printf "\e[1;31m✗ %s\e[0m\n" "$@" >&2; }
+print_error()   { printf "\e[1;31m✗ %s\e[0m\n" "$@" >&2; }
 
-# Kök kontrolü
-if [[ $EUID -ne 0 ]]; then
+# Kök kontrolü\if [[ $EUID -ne 0 ]]; then
    print_error "Bu script root yetkileri ile çalıştırılmalıdır"
    exit 1
 fi
@@ -18,7 +17,6 @@ log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" | tee -a /var/log/diode-install.log >/dev/null
 }
 
-# Başlık
 print_info "Diode Network Gateway Kurulumu Başlatılıyor..."
 log "===== KURULUM BAŞLANGICI ====="
 
@@ -109,14 +107,12 @@ cat > /var/www/html/diode-info <<'EOF'
 echo "Content-type: application/json"
 echo ""
 echo "{"
-echo "\"diode_address\":\"$(curl -s http://localhost:8080/address 2>/dev/null || echo "Hizmet başlatılıyor...")\","
-echo "\"local_ip\":\"$(hostname -I | awk "{print \$1}")\""
+echo "\"diode_address\":\"$(curl -s http://localhost:8080/address 2>/dev/null || echo \"Hizmet başlatılıyor...\")\"," 
+ echo "\"local_ip\":\"$(hostname -I | awk '{print \$1}')\""
 echo "}"
 EOF
-
 chmod +x /var/www/html/diode-info
 
-# Nginx test et ve yeniden başlat
 nginx -t && systemctl restart nginx
 print_success "Nginx test edildi ve yeniden başlatıldı"
 
@@ -129,45 +125,30 @@ mkdir -p "$INSTALL_DIR"
 
 # Sürüm kontrolü ile kurulum
 LATEST_VERSION=$(curl -s https://api.github.com/repos/diodechain/diode_go_client/releases/latest | jq -r '.tag_name')
-if [[ -z "$LATEST_VERSION" ]]; then
-    print_warning "Son sürüm bilgisi alınamadı, manuel sürüm kullanılıyor: v1.5.0"
+if [[ -z "$LATEST_VERSION" || "$LATEST_VERSION" == "null" ]]; then
+    print_warning "Son sürüm bilgisi alınamadı veya hatalı, manuel sürüm kullanılıyor: v1.5.0"
     LATEST_VERSION="v1.5.0"
 fi
 
-# Diode Go Client için doğru URL formatı
-DOWNLOAD_URL="https://github.com/diodechain/diode_go_client/releases/download/${LATEST_VERSION}/diode_linux_amd64.zip"
+# İndirme URL'si\DOWNLOAD_URL="https://github.com/diodechain/diode_go_client/releases/download/${LATEST_VERSION}/diode_linux_amd64.zip"
 print_info "Diode ${LATEST_VERSION} indiriliyor: ${DOWNLOAD_URL}"
 
-# İndirme işlemi
-curl -fL "$DOWNLOAD_URL" -o diode.zip
-if [ $? -ne 0 ]; then
+# İndirme ve kurulum
+curl -fL "$DOWNLOAD_URL" -o diode.zip || {
     print_error "Diode indirme başarısız"
-    print_info "Alternatif indirme yöntemi deneniyor..."
-    curl -fL "https://github.com/diodechain/diode_go_client/releases/latest/download/diode_linux_amd64.zip" -o diode.zip || {
-        print_error "Alternatif indirme de başarısız oldu"
-        exit 1
-    }
-fi
-
-# ZIP dosyasını açma
-unzip -o diode.zip -d "$INSTALL_DIR" || {
-    print_error "ZIP dosyası açılamadı, manuel kurulum deneniyor..."
-    rm -f diode.zip
-    curl -fL "https://github.com/diodechain/diode_go_client/releases/latest/download/diode_linux_amd64" -o "$INSTALL_DIR/diode" || {
-        print_error "Manuel indirme de başarısız oldu"
-        exit 1
-    }
-    chmod +x "$INSTALL_DIR/diode"
-    print_success "Manuel kurulum başarılı"
+    exit 1
 }
-
+unzip -o diode.zip -d "$INSTALL_DIR" || {
+    print_error "ZIP dosyası açılamadı"
+    exit 1
+}
 rm -f diode.zip
+chmod +x "${INSTALL_DIR}/diode"
 print_success "Diode CLI kuruldu: ${LATEST_VERSION}"
 
 # PATH güncellemesi
-if ! grep -q "$INSTALL_DIR" /etc/profile; then
+if ! grep -q "$INSTALL_DIR" /etc/profile.d/diode.sh 2>/dev/null; then
     echo "export PATH=${INSTALL_DIR}:\$PATH" | tee /etc/profile.d/diode.sh >/dev/null
-    source /etc/profile.d/diode.sh
 fi
 
 #############################
@@ -175,12 +156,10 @@ fi
 #############################
 print_info "Diode servisi yapılandırılıyor..."
 
-# Eski servisleri temizle
 systemctl stop diode-publish.service 2>/dev/null || true
 systemctl disable diode-publish.service 2>/dev/null || true
 rm -f /etc/systemd/system/diode-publish.service
 
-# Yeni servis tanımı
 cat > /etc/systemd/system/diode-publish.service <<EOF
 [Unit]
 Description=Diode HTTP Gateway Publisher
@@ -190,10 +169,10 @@ Requires=nginx.service
 [Service]
 Type=exec
 User=root
-ExecStart=${INSTALL_DIR}/diode \\
-    -diodeaddrs=eu1.prenet.diode.io:41046 \\
-    -stats \\
-    -verbose=1 \\
+ExecStart=${INSTALL_DIR}/diode \
+    -diodeaddrs=eu1.prenet.diode.io:41046 \
+    -stats \
+    -verbose=1 \
     publish -public 8888:80
 Restart=always
 RestartSec=10
@@ -202,7 +181,6 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=diode-publish
 
-# Güvenlik ayarları
 NoNewPrivileges=yes
 ProtectSystem=strict
 PrivateTmp=yes
@@ -218,7 +196,6 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 WantedBy=multi-user.target
 EOF
 
-# Servisi başlat
 systemctl daemon-reload
 systemctl enable --now diode-publish.service
 
