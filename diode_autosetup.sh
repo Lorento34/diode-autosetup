@@ -41,20 +41,14 @@ print_success "Paket kurulumu tamamlandı"
 #############################
 print_info "Nginx yapılandırması güncelleniyor..."
 
-# Statik test sayfası
+# Statik test sayfası oluşturma
 cat > /var/www/html/index.html <<'EOF'
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <title>Diode Gateway</title>
-  <style>
-    body { font-family:Arial,sans-serif; text-align:center; padding:50px; }
-    h1 { color:#2c3e50; }
-    .status { padding:20px; margin:20px auto; width:60%; border-radius:5px; font-weight:bold; }
-    .online { background-color:#2ecc71; color:white; }
-    .diode-info { background-color:#3498db; color:white; padding:15px; border-radius:3px; margin-top:30px; word-wrap:break-word; }
-  </style>
+  <style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;}h1{color:#2c3e50}.status{padding:20px;margin:20px auto;width:60%;border-radius:5px;font-weight:bold}.online{background-color:#2ecc71;color:white}.diode-info{background-color:#3498db;color:white;padding:15px;border-radius:3px;margin-top:30px;word-wrap:break-word}</style>
 </head>
 <body>
   <h1>Diode Network Gateway</h1>
@@ -65,18 +59,16 @@ cat > /var/www/html/index.html <<'EOF'
     <p><strong>Yerel IP:</strong> <span id="local-ip">Yükleniyor...</span></p>
   </div>
   <script>
-    fetch('/diode-info')
-      .then(r=>r.json())
-      .then(d=>{
-        document.getElementById('diode-address').textContent=d.diode_address||'Bilinmiyor';
-        document.getElementById('local-ip').textContent=d.local_ip||'Bilinmiyor';
-      });
+    fetch('/diode-info').then(r=>r.json()).then(d=>{
+      document.getElementById('diode-address').textContent=d.diode_address||'Bilinmiyor';
+      document.getElementById('local-ip').textContent=d.local_ip||'Bilinmiyor';
+    });
   </script>
 </body>
 </html>
 EOF
 
-# Portu 8888'e taşı
+# Nginx portu 8888 olarak ayarla
 NGINX_CONF="/etc/nginx/sites-available/default"
 if grep -q "listen 80" "$NGINX_CONF"; then
   sed -i 's/listen 80 default_server;/listen 8888 default_server;/'  "$NGINX_CONF"
@@ -86,15 +78,15 @@ else
   print_warning "Nginx zaten farklı bir portta çalışıyor"
 fi
 
-# /diode-info endpoint
-cat > /var/www/html/diode-info <<'EOF'
-#!/usr/bin/env bash
+# /diode-info endpoint script
+echo "#!/usr/bin/env bash" > /var/www/html/diode-info
+cat >> /var/www/html/diode-info <<'EOF'
 echo 'Content-Type: application/json'
 echo
-echo '{'
-echo '  "diode_address": "'$(curl -s http://localhost:8080/address 2>/dev/null || echo 'Başlatılıyor...')'",'
-echo '  "local_ip": "'$(hostname -I | awk '{print $1}')'"'
-echo '}'
+printf '{'
+printf '  "diode_address": "%s",\n' "$(curl -s http://localhost:8080/address||echo 'Başlatılıyor...')"
+printf '  "local_ip": "%s"\n' "$(hostname -I|awk '{print $1}')"
+printf '}'
 EOF
 chmod +x /var/www/html/diode-info
 
@@ -108,10 +100,7 @@ print_info "Diode CLI kuruluyor..."
 INSTALL_DIR="/opt/diode"
 mkdir -p "$INSTALL_DIR"
 
-# GitHub API’dan son sürümü çek
-LATEST_VERSION=$(curl -s https://api.github.com/repos/diodechain/diode_go_client/releases/latest \
-  | jq -r '.tag_name // empty')
-
+LATEST_VERSION=$(curl -s https://api.github.com/repos/diodechain/diode_go_client/releases/latest|jq -r '.tag_name//empty')
 if [ -n "$LATEST_VERSION" ]; then
   DOWNLOAD_URL="https://github.com/diodechain/diode_go_client/releases/download/${LATEST_VERSION}/diode_linux_amd64.zip"
   print_info "Sürüm $LATEST_VERSION bulundu, indiriliyor..."
@@ -119,16 +108,15 @@ else
   print_warning "Son sürüm bulunamadı, fallback indiriliyor..."
   DOWNLOAD_URL="https://github.com/diodechain/diode_go_client/releases/latest/download/diode_linux_amd64.zip"
 fi
-
 curl -fL "$DOWNLOAD_URL" -o diode.zip || { print_error "Diode indirme başarısız"; exit 1; }
-unzip -o diode.zip -d "$INSTALL_DIR"  || { print_error "ZIP açılamadı"; exit 1; }
+unzip -o diode.zip -d "$INSTALL_DIR" || { print_error "ZIP açılamadı"; exit 1; }
 rm -f diode.zip
 chmod +x "${INSTALL_DIR}/diode"
 print_success "Diode CLI kuruldu"
 
-# PATH’e ekle
-if ! grep -q "$INSTALL_DIR" /etc/profile.d/diode.sh 2>/dev/null; then
-  echo "export PATH=${INSTALL_DIR}:\$PATH" > /etc/profile.d/diode.sh
+# PATH güncellemesi
+if [ ! -f /etc/profile.d/diode.sh ] || ! grep -q "$INSTALL_DIR" /etc/profile.d/diode.sh; then
+    echo "export PATH=${INSTALL_DIR}:\$PATH" > /etc/profile.d/diode.sh
 fi
 
 #############################
@@ -146,8 +134,10 @@ Requires=nginx.service
 [Service]
 Type=simple
 User=root
-ExecStart=${INSTALL_DIR}/diode \\
-    -diodeaddrs=eu1.prenet.diode.io:41046 \\
+# Sadece zincir önbelleğini temizle, device ticket saklı kalsın
+ExecStartPre=-/usr/bin/rm -rf /root/.diode/chain
+ExecStart=${INSTALL_DIR}/diode \
+    -diodeaddrs=eu1.prenet.diode.io:41046 \
     publish -public 8888:80
 Restart=on-failure
 RestartSec=10
@@ -181,12 +171,11 @@ print_success "Service başlatıldı"
 print_info "Servis sağlığı kontrol ediliyor..."
 sleep 5
 if systemctl is-active --quiet diode-publish.service; then
-  DIODE_ADDRESS=$(curl -s http://localhost:8080/address || echo "adres-alınamadı")
+  DIODE_ADDRESS=$(curl -s http://localhost:8080/address||echo "adres-alınamadı")
   print_success "Servis ayakta"
   print_success "Yayın URL: https://${DIODE_ADDRESS}.diode.link"
 else
-  print_error "Servis başlatılamadı. Son loglar:"
-  journalctl -u diode-publish.service -n20 --no-pager
+  print_error "Servis başlatılamadı. Son loglar:"; journalctl -u diode-publish.service -n20 --no-pager
   exit 1
 fi
 
@@ -203,7 +192,7 @@ cat <<EOF
    https://${DIODE_ADDRESS}.diode.link
 
 📊 Durum Sayfası (Yerel Ağ):
-   http://$(hostname -I | awk '{print $1}')
+   http://$(hostname -I|awk '{print $1}')
 
 📋 Yönetim Komutları:
    Servis Durumu:      sudo systemctl status diode-publish.service
